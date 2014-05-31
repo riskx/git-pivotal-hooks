@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bn/env python
 
 """
 Copyright (c) 2011 Socialize, Inc.
@@ -27,7 +27,7 @@ import urllib2
 import sys
 import os.path
 import re
-from xml.dom.minidom import parse
+import json
 
 
 def load_config():
@@ -40,9 +40,9 @@ def load_config():
 
 
 def load_document(token, filter, project_id):
-    req = urllib2.Request(
-            'http://www.pivotaltracker.com/services/v3/projects/%s/stories/?filter=%s' % (
-                project_id, urllib2.quote(filter)))
+    req_url = 'https://www.pivotaltracker.com/services/v5/projects/%s/search?query=%s' % (project_id, filter)
+    print "calling %s" % (req_url)
+    req = urllib2.Request(req_url)
     req.add_header("X-TrackerToken", token)
     result = urllib2.urlopen(req)
     return result
@@ -56,18 +56,21 @@ if __name__ == '__main__':
     msg_file = sys.argv[1]
 
     token, filter, project_id = load_config()
-    pivotal_document = parse(load_document(token, filter, project_id))
+    res = load_document(token, filter, project_id)
+    pivotal_document = json.load(res)
 
-    stories = pivotal_document.getElementsByTagName('story')
+    #print "pivotal_document: \n %s" %(pivotal_document)
+    stories = pivotal_document['stories']['stories']
 
     stories_to_add = []
+    actions_to_add = []
     potential_stories_to_add = []
     if stories:
         i = 1
         print "Available Stories"
         for story in stories:
-            id = story.getElementsByTagName('id')[0].firstChild.wholeText
-            name = story.getElementsByTagName('name')[0].firstChild.wholeText
+            id = story['id']
+            name = story['name']
 
             print "%s: %s -- %s" % (i, id, name)
             potential_stories_to_add.append((id, name))
@@ -82,13 +85,17 @@ if __name__ == '__main__':
         "Please choose which story/stories this commit relates to (as a comma separated list):"))
     items_to_include = [i.strip() for i in items_to_include if i]
 
+    print "items_to_include %s" % (items_to_include)
     if items_to_include:
         for i in items_to_include:
-            index = int(i) - 1
-            if index < len(potential_stories_to_add):
-                stories_to_add.append(potential_stories_to_add[index])
+            if any(i in s for s in ['fixed','fixes','finished']):
+                actions_to_add.append(i)
             else:
-                print "Sorry, %s was not an option." % i
+                index = int(i) - 1
+                if index < len(potential_stories_to_add):
+                    stories_to_add.append(potential_stories_to_add[index])
+                else:
+                    print "Sorry, %s was not an option." % i
 
     if len(stories_to_add) == 0:
         print "No stories found. Not adding anything to commit message."
@@ -97,5 +104,5 @@ if __name__ == '__main__':
     stringified_stories = ['#%s' % story[0] for story in stories_to_add]
 
     msg = open(msg_file, 'r').read()
-    msg = '[%s] %s' % (' '.join(stringified_stories), msg)
+    msg = '[%s %s] %s' % (' '.join(actions_to_add), ' '.join(stringified_stories), msg)
     open(msg_file, 'w').write(msg)
